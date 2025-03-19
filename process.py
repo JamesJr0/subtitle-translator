@@ -1,109 +1,77 @@
-from firebase import firebase as fb
+from pymongo import MongoClient
 import datetime
 import pytz
 from creds import cred
-firebase = fb.FirebaseApplication(cred.DB_URL)
 
+# MongoDB Connection
+client = MongoClient(cred.DB_URL)
+db = client[cred.DB_NAME]  # Database reference
+users_collection = db["users"]
+files_collection = db["files"]
+stats_collection = db["stats"]
 
-def datefind():
-    date = datetime.datetime.utcnow()
-    date2 = date.replace(tzinfo=pytz.UTC)
-    date = date2.astimezone(pytz.timezone("Asia/Kolkata"))
-    date = str(date)
-    date = date[0:10]
-    today_date = int(date.replace("-", ""))
-    return today_date
+def get_today_date():
+    """Get today's date in YYYYMMDD format (IST timezone)."""
+    return int(datetime.datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%Y%m%d"))
 
-
-today_date = datefind()
-date = datetime.datetime.utcnow()
-date2 = date.replace(tzinfo=pytz.UTC)
-date = date2.astimezone(pytz.timezone("Asia/Kolkata"))
-date = str(date)
-date = date[0:10]
-
+today_date = get_today_date()
 
 def check(chatids):
-    data = firebase.get("/users", chatids)
-    rslt = data["status"]
-    return rslt
-
+    user = users_collection.find_one({"_id": chatids})
+    return user.get("status", "Unknown") if user else "Unknown"
 
 def count(chatids):
-    data = firebase.get("/users", chatids)
-    rslt = data["count"]
-    return rslt
-
+    user = users_collection.find_one({"_id": chatids})
+    return user.get("count", 0) if user else 0
 
 def update(id, count, status):
-    update_data = {"user_id": id, "status": status, "count": count, "date": today_date}
-    firebase.put("/users", id, update_data)
-
+    update_data = {
+        "_id": id,
+        "status": status,
+        "count": count,
+        "date": today_date,
+    }
+    users_collection.update_one({"_id": id}, {"$set": update_data}, upsert=True)
 
 def dt(chatids):
-    rslt = ""
-    try:
-        data = firebase.get("/users", chatids)
-        rslt = data["date"]
-    except Exception:
-        pass
-    return rslt
-
+    user = users_collection.find_one({"_id": chatids})
+    return user.get("date", "")
 
 def format_time(elapsed):
-    """Formats elapsed seconds into a human readable format."""
-    hours = int(elapsed / (60 * 60))
-    minutes = int((elapsed % (60 * 60)) / 60)
-    seconds = int(elapsed % 60)
-    rval = ""
-    if hours:
-        rval += "{0}h".format(hours)
-    if elapsed > 60:
-        rval += "{0}m".format(minutes)
-    rval += "{0}s".format(seconds)
-    return rval
-
+    """Formats elapsed seconds into a human-readable format."""
+    hours = elapsed // 3600
+    minutes = (elapsed % 3600) // 60
+    seconds = elapsed % 60
+    return f"{hours}h {minutes}m {seconds}s".strip()
 
 def updateFile():
-    filess = firebase.get("/", "files")
-    filess = filess["files"]
-    filess += 1
-    firebase.put("/", "files", {"files": filess})
-
+    files_data = files_collection.find_one({"_id": "files"}) or {"files": 0}
+    files_collection.update_one({"_id": "files"}, {"$set": {"files": files_data["files"] + 1}}, upsert=True)
 
 def insertlog():
-    subtrans_users = firebase.get("/users", "")
-    files = firebase.get("/", "files")
-    lst1 = []
-    act = []
-    for _, v in subtrans_users.items():
-        lst1.append("u")
-        if v["date"] == today_date:
-            act.append("d")
-    total_files = f"{files['files']}"
-    total_users = f"{lst1.count('u')}"
-    active_today = f"{act.count('d')}"
+    total_users = users_collection.count_documents({})
+    active_today = users_collection.count_documents({"date": today_date})
+
+    files_data = files_collection.find_one({"_id": "files"}) or {"files": 0}
+    total_files = files_data["files"]
 
     data = {
         "active_users": active_today,
         "translated_files": total_files,
         "total_users": total_users,
     }
-    firebase.put("/stats", date, data)
-
+    stats_collection.update_one({"_id": today_date}, {"$set": data}, upsert=True)
 
 def logreturn():
-    subtrans_users = firebase.get("/users", "")
-    files = firebase.get("/", "files")
-    total_files = f"{files['files']}"
-    lst1 = []
-    act = []
-    for _, v in subtrans_users.items():
-        lst1.append("u")
-        if v["date"] == today_date:
-            act.append("d")
-    total_files = f"`Total subtitles translated` : **{total_files}**"
-    total_users = f"`Total bot users`                          : **{lst1.count('u')}**"
-    active_today = f"`Active users today`                   : **{act.count('d')}**"
-    stato = f"\n{total_files}\n{total_users}\n{active_today}"
+    total_users = users_collection.count_documents({})
+    active_today = users_collection.count_documents({"date": today_date})
+
+    files_data = files_collection.find_one({"_id": "files"}) or {"files": 0}
+    total_files = files_data["files"]
+
+    stato = (
+        f"`Total subtitles translated` : **{total_files}**\n"
+        f"`Total bot users`                          : **{total_users}**\n"
+        f"`Active users today`                   : **{active_today}**"
+    )
     return stato
