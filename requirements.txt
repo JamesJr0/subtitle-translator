@@ -10,3 +10,4 @@ python-jwt
 requests-toolbelt
 sseclient
 pytz
+gunicorn==20.1.0
