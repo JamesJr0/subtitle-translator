@@ -1,4 +1,10 @@
 from firebase import firebase
+import threading
+import os
+
+if hasattr(threading, '_after_fork'):
+    os.register_at_fork(after_in_child=threading._after_fork)
+
 from creds import cred
 from googletrans import Translator
 from pyrogram import Client, filters
